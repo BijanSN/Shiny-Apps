@@ -16,55 +16,43 @@ library(reshape2)
 library(scales)
 library(magrittr)
 
-# source("Function1.R")
-
 #---- Load data -------------------------------------------
 
-# 3 random stocks : Nvidia, Apple and Visa
-getSymbols(c("NVDA", "AAPL", "V"))
-# Get adjusted prices
-prices.data <- merge.zoo(NVDA[,6], AAPL[,6], V[,6])
-
-# Calculate returns
-returns.data <- CalculateReturns(prices.data)
-returns.data <- na.omit(returns.data)
-returns.data <- fortify.zoo(returns.data)
-
-returns.data %<>% 
-  rename(
-    NVDA = NVDA.Adjusted,
-    AAPL = AAPL.Adjusted,
-    V = V.Adjusted
-  )
-
-# or :
-# data(EuStockMarkets)
-# 
-# Dax= EuStockMarkets[,"DAX"]
-# Smi= EuStockMarkets[,"SMI"]
-# Cac= EuStockMarkets[,"CAC"]
+source("Load_data.R")
 
 #---- UI --------------------------------------------------
 
-ui<-dashboardPage(skin= "red",
-  dashboardHeader(title= "Dashboard"),
-  dashboardSidebar(
-    sidebarMenu(
-      menuItem("Stocks", tabName = "stocks", icon = icon("signal"))
-    )
-  ),
+ui<-dashboardPage(#skin= "red",
+    dashboardHeader(title= "Sales Dashboard"),
+    
+    dashboardSidebar(
+      sidebarMenu(
+        menuItem(strong("Data visualisation"),    
+                 tabName = "Data_visualisation",
+                 icon = icon("dashboard"))
+      )
+    ),
+    
   dashboardBody(
     tabItems(
-      #Stocks Page
-      tabItem("stocks",
-        box(plotOutput("hist_plot"),width=8),
-        box(
-          selectInput("stocks","Stocks :",
-                         c("NVDA","AAPL",
-                           "V")),width = 4
+      tabItem(tabName = "Data_visualisation",
+       column(
+          width = 10,
+          box(uiOutput("stock")),
+          box(verbatimTextOutput("summary"))
         ),
-        box(plotOutput("density_plot"),width=8)
-      )
+       column(
+          width = 10,
+          box(plotOutput("hist_plot")),
+          box(plotOutput("time_plot"))
+       ),
+        column(
+         width = 10,
+          box(plotOutput("regression_plot")),
+          box(plotOutput("density_plot"))
+        )
+      ),
+      tabItem(tabName = "Data_visualisation")
     )
   )
 )
@@ -73,20 +61,50 @@ ui<-dashboardPage(skin= "red",
 
 server <- function(input,output){
 
+  output$stock <- renderUI({
+    selectInput(
+    inputId = "stock",
+    label = "Stocks :",
+    choices = returns.data %>%
+          select(-1) %>% # remove time index from stock choices
+          colnames())})
+  
   # render Histogram 
   output$hist_plot <-renderPlot({
-    hist(returns.data[[input$stocks]])
-    # plot(returns.data[[input$stocks]])
+    returns.data %>% 
+      ggplot(.,aes_string(x=input$stock))+
+      stat_bin(bins=30)+
+      geom_histogram()
   })
   
   # render Density
-  output$density_plot <-renderPlot({
-    plot(density(as.numeric(returns.data[[input$stocks]]), adjust = 1.0),col='blue')
-  })
+   output$density_plot <-renderPlot({
+    returns.data %>% 
+      ggplot(.,aes_string(x=input$stock))+
+      geom_density()
+})
+
+ # render Time Series :
+   output$time_plot <- renderPlot({
+     merge.zoo(prices.data$Index,prices.data[[input$stock]]) %>% 
+       ggplot(.,aes(x=Index,y=prices.data[[input$stock]])) +
+       xlab("Time")+ ylab("Price")+
+       geom_line()
+   })
+   
+   #render regression against the benchmark
+   output$regression_plot <- renderPlot({
+     prices.data %>%
+       ggplot(., aes_string(x=prices.data$SP500, y=input$stock)) +
+       geom_point()+
+       geom_smooth(method=lm, se=FALSE)+ xlab("S&P500")+ title("regression against the benchmark")
+   })
+   
+ #Summary of returns :
+     output$summary <-renderPrint(summary(returns.data[[input$stock]]))
+  
 }
 
 #---- Shiny  App -------
 
 shinyApp(ui, server)
-
-
